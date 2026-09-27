@@ -2,8 +2,11 @@
 
 [English](README.en.md)
 
-Поле **«Сервер входа»** на странице Tailscale в веб-интерфейсе [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM) —
-подключение к [Headscale](https://github.com/juanfont/headscale) или другому совместимому серверу вместо Tailscale.
+Подключение [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM) к собственному серверу Tailscale, например
+[Headscale](https://github.com/juanfont/headscale).
+
+Штатный NanoKVM умеет входить только в официальный Tailscale. После установки на странице **Настройки → Tailscale**
+появляется поле «Сервер входа» — впишите туда адрес своего сервера.
 
 ## Быстрая установка
 

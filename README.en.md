@@ -2,8 +2,11 @@
 
 [Русский](README.md)
 
-A **Login Server** field on the Tailscale page of the [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM) web UI —
-join [Headscale](https://github.com/juanfont/headscale) or any other compatible control server instead of Tailscale.
+Connect [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM) to your own Tailscale control server, such as
+[Headscale](https://github.com/juanfont/headscale).
+
+Stock NanoKVM can only log in to the official Tailscale. After installing, **Settings → Tailscale** gets a
+**Login Server** field — enter your server's address there.
 
 ## Quick install
 
