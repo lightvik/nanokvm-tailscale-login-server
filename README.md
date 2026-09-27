@@ -15,7 +15,7 @@
 
    ```sh
    curl -fsSL \
-     https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/install.sh \
+     https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/master/install.sh \
      | sh
    ```
 
@@ -25,7 +25,7 @@
 
 ```sh
 curl -fsSL \
-  https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/uninstall.sh \
+  https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/master/uninstall.sh \
   | sh
 ```
 

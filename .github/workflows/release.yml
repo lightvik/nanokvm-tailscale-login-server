@@ -86,7 +86,7 @@ jobs:
           ### Install (on the NanoKVM, as root)
 
           \`\`\`sh
-          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/master/install.sh | sh
           \`\`\`
 
           Only for devices running NanoKVM application version \`${NKVER}\` (\`cat /kvmapp/version\`).

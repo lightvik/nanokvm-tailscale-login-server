@@ -2,7 +2,7 @@
 # Install nanokvm-tailscale-login-server on a NanoKVM.
 # https://github.com/lightvik/nanokvm-tailscale-login-server
 #
-#   curl -fsSL https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/master/install.sh | sh
 #
 # The login server itself is set in the web UI: Settings > Tailscale > Login Server.
 #

@@ -2,7 +2,7 @@
 # Remove nanokvm-tailscale-login-server from a NanoKVM.
 # https://github.com/lightvik/nanokvm-tailscale-login-server
 #
-#   curl -fsSL https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/uninstall.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/master/uninstall.sh | sh
 #
 # Options:
 #   --purge       also remove /etc/kvm/tailscale_login_server and backups
