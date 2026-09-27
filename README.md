@@ -11,8 +11,9 @@
 2. На NanoKVM под root (SSH или веб-терминал `>_`):
 
    ```sh
-   R=https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main
-   curl -fsSL $R/install.sh | sh
+   curl -fsSL \
+     https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/install.sh \
+     | sh
    ```
 
 3. **Настройки → Tailscale**: укажите URL в поле «Сервер входа» и нажмите «Войти». Пустое поле — официальный Tailscale.
@@ -20,8 +21,9 @@
 Удаление:
 
 ```sh
-R=https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main
-curl -fsSL $R/uninstall.sh | sh
+curl -fsSL \
+  https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/uninstall.sh \
+  | sh
 ```
 
 `--purge` дополнительно удаляет сохранённый URL и бэкапы.
@@ -49,10 +51,11 @@ curl -fsSL $R/uninstall.sh | sh
 ## Офлайн-установка
 
 ```sh
-F=nanokvm-tailscale-login-server_2.5.1-1.tar.gz
-scp $F root@<nanokvm>:/tmp/
-ssh root@<nanokvm> "cd /tmp && gzip -dc $F | tar -xf - \
-  && ./nanokvm-tailscale-login-server/install.sh"
+scp nanokvm-tailscale-login-server_2.5.1-1.tar.gz root@<nanokvm>:/tmp/
+ssh root@<nanokvm>
+cd /tmp
+gzip -dc nanokvm-tailscale-login-server_2.5.1-1.tar.gz | tar -xf -
+./nanokvm-tailscale-login-server/install.sh
 ```
 
 ## Сборка и новые версии
