@@ -60,7 +60,7 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 # Package directory: the extracted release next to this script (offline
 # install), otherwise downloaded from GitHub releases.
 PKG=""
-SELF_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)
+SELF_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || SELF_DIR=""
 if [ -n "$SELF_DIR" ] && [ -f "$SELF_DIR/NANOKVM_VERSION" ]; then
     PKG=$SELF_DIR
 fi
