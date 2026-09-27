@@ -1,0 +1,105 @@
+name: Release
+
+# Tag format: <NanoKVM version>-<revision>, e.g. 2.5.1-1.
+# The NanoKVM version selects patches/<version>/ and the sipeed/NanoKVM tag
+# to build from; install.sh on the device picks releases by that prefix.
+
+on:
+  push:
+    tags:
+      - '*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build and release, e.g. 2.5.1-1
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate tag
+        id: tag
+        run: |
+          if ! echo "$TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'; then
+            echo "::error::invalid tag '$TAG', expected <nanokvm-version>-<revision>"
+            exit 1
+          fi
+          NKVER="${TAG%-*}"
+          if [ ! -d "patches/$NKVER" ]; then
+            echo "::error::no patches for NanoKVM $NKVER"
+            exit 1
+          fi
+          echo "nkver=$NKVER" >> "$GITHUB_OUTPUT"
+
+      # The NanoKVM builder image is ~9 GB.
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/share/powershell
+          sudo docker image prune -af
+          df -h /
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm
+        run: npm install --global pnpm@11
+
+      - name: Build
+        run: ./scripts/build.sh "$TAG"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NKVER: ${{ steps.tag.outputs.nkver }}
+        run: |
+          ARCHIVE="nanokvm-tailscale-login-server_${TAG}.tar.gz"
+          COMMIT=$(cat "build/$NKVER/pkg/nanokvm-tailscale-login-server/NANOKVM_COMMIT")
+          SHA256=$(cut -d' ' -f1 "dist/$ARCHIVE.sha256")
+
+          cat > notes.md <<NOTES
+          Custom Tailscale login server (Headscale) for **NanoKVM ${NKVER}**.
+
+          Built from [sipeed/NanoKVM@${NKVER}](https://github.com/sipeed/NanoKVM/tree/${COMMIT}) with \`patches/${NKVER}\`.
+
+          ### Install (on the NanoKVM, as root)
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh
+          \`\`\`
+
+          Only for devices running NanoKVM application version \`${NKVER}\` (\`cat /kvmapp/version\`).
+
+          \`${ARCHIVE}\` SHA-256: \`${SHA256}\`
+          NOTES
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" dist/* \
+              --title "$TAG (NanoKVM $NKVER)" \
+              --notes-file notes.md \
+              --verify-tag
+          fi

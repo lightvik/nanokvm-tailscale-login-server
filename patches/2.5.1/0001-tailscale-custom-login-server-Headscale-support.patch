@@ -1,0 +1,531 @@
+From 7950754fbd51d429d93074bd00f6a5030bfc9a1c Mon Sep 17 00:00:00 2001
+From: lightvik <lightvik@gmail.com>
+Date: Sun, 27 Sep 2026 19:06:37 +0500
+Subject: [PATCH] tailscale: custom login server (Headscale) support
+
+Add a "Login Server" field to the Tailscale settings page. The value is
+stored in /etc/kvm/tailscale_login_server and passed to tailscale login/up
+as --login-server, so NanoKVM can join Headscale or any other compatible
+control server instead of controlplane.tailscale.com.
+
+- GET/POST /api/extensions/tailscale/login-server
+- status response includes loginServer
+- uninstall also removes /usr/bin/tailscale.real (wrapper setup)
+---
+ server/proto/tailscale.go                     |  10 ++
+ server/router/extensions.go                   |   3 +
+ server/service/extensions/tailscale/cli.go    |   4 +-
+ .../extensions/tailscale/login_server.go      |  81 +++++++++++
+ .../extensions/tailscale/login_server_test.go |  38 +++++
+ .../service/extensions/tailscale/service.go   |  41 ++++++
+ web/src/api/extensions/tailscale.ts           |  10 ++
+ web/src/i18n/locales/en.ts                    |   7 +
+ web/src/i18n/locales/ru.ts                    |   7 +
+ .../menu/settings/tailscale/device.tsx        |   7 +
+ .../desktop/menu/settings/tailscale/login.tsx | 133 +++++++++++++-----
+ .../desktop/menu/settings/tailscale/types.ts  |   1 +
+ 12 files changed, 305 insertions(+), 37 deletions(-)
+ create mode 100644 server/service/extensions/tailscale/login_server.go
+ create mode 100644 server/service/extensions/tailscale/login_server_test.go
+
+diff --git a/server/proto/tailscale.go b/server/proto/tailscale.go
+index 21186d9..84c467d 100644
+--- a/server/proto/tailscale.go
++++ b/server/proto/tailscale.go
+@@ -15,8 +15,18 @@ type GetTailscaleStatusRsp struct {
+ 	Name    string         `json:"name"`
+ 	IP      string         `json:"ip"`
+ 	Account string         `json:"account"`
++
++	LoginServer string `json:"loginServer"`
+ }
+ 
+ type LoginTailscaleRsp struct {
+ 	Url string `json:"url"`
+ }
++
++type TailscaleLoginServerReq struct {
++	Url string `json:"url" form:"url"`
++}
++
++type TailscaleLoginServerRsp struct {
++	Url string `json:"url"`
++}
+diff --git a/server/router/extensions.go b/server/router/extensions.go
+index c38eeb4..780459f 100644
+--- a/server/router/extensions.go
++++ b/server/router/extensions.go
+@@ -26,4 +26,7 @@ func extensionsRouter(r *gin.Engine) {
+ 	api.POST("/tailscale/start", ts.Start)         // tailscale start
+ 	api.POST("/tailscale/stop", ts.Stop)           // tailscale stop
+ 	api.POST("/tailscale/restart", ts.Restart)     // tailscale restart
++
++	api.GET("/tailscale/login-server", ts.GetLoginServer)  // get custom control server
++	api.POST("/tailscale/login-server", ts.SetLoginServer) // set custom control server
+ }
+diff --git a/server/service/extensions/tailscale/cli.go b/server/service/extensions/tailscale/cli.go
+index 300c2b1..476bdfe 100644
+--- a/server/service/extensions/tailscale/cli.go
++++ b/server/service/extensions/tailscale/cli.go
+@@ -73,7 +73,7 @@ func (c *Cli) Stop() error {
+ }
+ 
+ func (c *Cli) Up() error {
+-	command := "tailscale up --accept-dns=false"
++	command := "tailscale up --accept-dns=false" + loginServerArg()
+ 	return exec.Command("sh", "-c", command).Run()
+ }
+ 
+@@ -111,7 +111,7 @@ func (c *Cli) Status() (*TsStatus, error) {
+ }
+ 
+ func (c *Cli) Login() (string, error) {
+-	command := "tailscale login --accept-dns=false --timeout=10m"
++	command := "tailscale login --accept-dns=false --timeout=10m" + loginServerArg()
+ 	cmd := exec.Command("sh", "-c", command)
+ 
+ 	stderr, err := cmd.StderrPipe()
+diff --git a/server/service/extensions/tailscale/login_server.go b/server/service/extensions/tailscale/login_server.go
+new file mode 100644
+index 0000000..785d647
+--- /dev/null
++++ b/server/service/extensions/tailscale/login_server.go
+@@ -0,0 +1,81 @@
++package tailscale
++
++import (
++	"bufio"
++	"errors"
++	"os"
++	"regexp"
++	"strings"
++)
++
++// LoginServerFile stores the custom control server URL (e.g. Headscale).
++// An empty file, or a file with only comments, means the default Tailscale
++// control server. The same file is read by the /usr/bin/tailscale wrapper
++// installed by nanokvm-tailscale-login-server, so the setting keeps working
++// even with a stock NanoKVM-Server.
++const LoginServerFile = "/etc/kvm/tailscale_login_server"
++
++// Only plain http(s) URLs without query, fragment or credentials are accepted.
++// The value is passed to "sh -c", so the allowed charset must stay shell-safe.
++var loginServerRegexp = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$`)
++
++var ErrInvalidLoginServer = errors.New("invalid login server url")
++
++func normalizeLoginServer(raw string) (string, error) {
++	url := strings.TrimRight(strings.TrimSpace(raw), "/")
++	if url == "" {
++		return "", nil
++	}
++
++	if !loginServerRegexp.MatchString(url) {
++		return "", ErrInvalidLoginServer
++	}
++
++	return url, nil
++}
++
++func readLoginServer() string {
++	file, err := os.Open(LoginServerFile)
++	if err != nil {
++		return ""
++	}
++	defer func() {
++		_ = file.Close()
++	}()
++
++	scanner := bufio.NewScanner(file)
++	for scanner.Scan() {
++		line := strings.TrimSpace(scanner.Text())
++		if line == "" || strings.HasPrefix(line, "#") {
++			continue
++		}
++
++		url, err := normalizeLoginServer(line)
++		if err != nil {
++			return ""
++		}
++		return url
++	}
++
++	return ""
++}
++
++func writeLoginServer(url string) error {
++	content := "# Custom Tailscale control server (e.g. Headscale). Empty = Tailscale default.\n"
++	if url != "" {
++		content += url + "\n"
++	}
++
++	tmp := LoginServerFile + ".tmp"
++	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
++		return err
++	}
++	return os.Rename(tmp, LoginServerFile)
++}
++
++func loginServerArg() string {
++	if url := readLoginServer(); url != "" {
++		return " --login-server=" + url
++	}
++	return ""
++}
+diff --git a/server/service/extensions/tailscale/login_server_test.go b/server/service/extensions/tailscale/login_server_test.go
+new file mode 100644
+index 0000000..9dfd7ac
+--- /dev/null
++++ b/server/service/extensions/tailscale/login_server_test.go
+@@ -0,0 +1,38 @@
++package tailscale
++
++import "testing"
++
++func TestNormalizeLoginServer(t *testing.T) {
++	ok := map[string]string{
++		"":                                   "",
++		"  ":                                 "",
++		"https://hs.cry.kz":                  "https://hs.cry.kz",
++		" https://hs.cry.kz/ ":               "https://hs.cry.kz",
++		"http://10.0.0.1:8080":               "http://10.0.0.1:8080",
++		"https://example.com/hs/":            "https://example.com/hs",
++		"https://controlplane.tailscale.com": "https://controlplane.tailscale.com",
++	}
++	for in, want := range ok {
++		got, err := normalizeLoginServer(in)
++		if err != nil || got != want {
++			t.Errorf("normalizeLoginServer(%q) = %q, %v; want %q", in, got, err, want)
++		}
++	}
++
++	bad := []string{
++		"hs.cry.kz",
++		"ftp://hs.cry.kz",
++		"https://hs.cry.kz?x=1",
++		"https://hs.cry.kz#a",
++		"https://user:pw@hs.cry.kz",
++		"https://hs.cry.kz;reboot",
++		"https://hs.cry.kz/$(id)",
++		"https://hs.cry.kz `id`",
++		"https://",
++	}
++	for _, in := range bad {
++		if _, err := normalizeLoginServer(in); err == nil {
++			t.Errorf("normalizeLoginServer(%q) accepted invalid url", in)
++		}
++	}
++}
+diff --git a/server/service/extensions/tailscale/service.go b/server/service/extensions/tailscale/service.go
+index 48693a1..e9948a9 100644
+--- a/server/service/extensions/tailscale/service.go
++++ b/server/service/extensions/tailscale/service.go
+@@ -16,6 +16,9 @@ const (
+ 	TailscalePath  = "/usr/bin/tailscale"
+ 	TailscaledPath = "/usr/sbin/tailscaled"
+ 
++	// real binary when /usr/bin/tailscale is the login-server wrapper
++	TailscaleRealPath = "/usr/bin/tailscale.real"
++
+ 	GoMemLimit int64 = 75
+ )
+ 
+@@ -57,6 +60,7 @@ func (s *Service) Uninstall(c *gin.Context) {
+ 
+ 	_ = os.Remove(TailscalePath)
+ 	_ = os.Remove(TailscaledPath)
++	_ = os.Remove(TailscaleRealPath)
+ 
+ 	rsp.OkRsp(c)
+ 	log.Debugf("uninstall tailscale successfully")
+@@ -232,8 +236,45 @@ func (s *Service) GetStatus(c *gin.Context) {
+ 		IP:      ipv4,
+ 		Name:    status.Self.HostName,
+ 		Account: status.CurrentTailnet.Name,
++
++		LoginServer: readLoginServer(),
+ 	}
+ 
+ 	rsp.OkRspWithData(c, &data)
+ 	log.Debugf("get tailscale status successfully")
+ }
++
++func (s *Service) GetLoginServer(c *gin.Context) {
++	var rsp proto.Response
++
++	rsp.OkRspWithData(c, &proto.TailscaleLoginServerRsp{
++		Url: readLoginServer(),
++	})
++}
++
++func (s *Service) SetLoginServer(c *gin.Context) {
++	var req proto.TailscaleLoginServerReq
++	var rsp proto.Response
++
++	if err := proto.ParseFormRequest(c, &req); err != nil {
++		rsp.ErrRsp(c, -1, "invalid arguments")
++		return
++	}
++
++	url, err := normalizeLoginServer(req.Url)
++	if err != nil {
++		rsp.ErrRsp(c, -2, "invalid login server url")
++		return
++	}
++
++	if err := writeLoginServer(url); err != nil {
++		rsp.ErrRsp(c, -3, "failed to save login server")
++		log.Errorf("failed to save tailscale login server: %s", err)
++		return
++	}
++
++	rsp.OkRspWithData(c, &proto.TailscaleLoginServerRsp{
++		Url: url,
++	})
++	log.Debugf("set tailscale login server: %q", url)
++}
+diff --git a/web/src/api/extensions/tailscale.ts b/web/src/api/extensions/tailscale.ts
+index 556a0b9..7c588d5 100644
+--- a/web/src/api/extensions/tailscale.ts
++++ b/web/src/api/extensions/tailscale.ts
+@@ -49,3 +49,13 @@ export function login() {
+ export function logout() {
+   return http.post('/api/extensions/tailscale/logout');
+ }
++
++// get custom control server (e.g. Headscale), empty = Tailscale default
++export function getLoginServer() {
++  return http.get('/api/extensions/tailscale/login-server');
++}
++
++// set custom control server, empty = Tailscale default
++export function setLoginServer(url: string) {
++  return http.post('/api/extensions/tailscale/login-server', { url });
++}
+diff --git a/web/src/i18n/locales/en.ts b/web/src/i18n/locales/en.ts
+index 1e2e676..e340aed 100644
+--- a/web/src/i18n/locales/en.ts
++++ b/web/src/i18n/locales/en.ts
+@@ -527,6 +527,13 @@ const en = {
+         run: 'Start',
+         notLogin:
+           'The device has not been bound yet. Please login and bind this device to your account.',
++        loginServer: {
++          title: 'Login Server',
++          desc: 'Custom control server, e.g. Headscale. Leave empty to use Tailscale.',
++          default: 'Tailscale (default)',
++          invalidUrl: 'Enter a valid http(s) URL without query or fragment',
++          saveFailed: 'Failed to save login server'
++        },
+         urlPeriod: 'This url is valid for 10 minutes',
+         login: 'Login',
+         loginSuccess: 'Login Success',
+diff --git a/web/src/i18n/locales/ru.ts b/web/src/i18n/locales/ru.ts
+index ab15241..a4841b2 100644
+--- a/web/src/i18n/locales/ru.ts
++++ b/web/src/i18n/locales/ru.ts
+@@ -531,6 +531,13 @@ const ru = {
+         notRunning: 'Tailscale не работает. Пожалуйста, начните, чтобы продолжить.',
+         run: 'Старт',
+         notLogin: 'Устройство не привязано. Войдите, чтобы привязать его к аккаунту.',
++        loginServer: {
++          title: 'Сервер входа',
++          desc: 'Собственный control server, например Headscale. Оставьте пустым для Tailscale.',
++          default: 'Tailscale (по умолчанию)',
++          invalidUrl: 'Введите корректный http(s) URL без параметров и якоря',
++          saveFailed: 'Не удалось сохранить сервер входа'
++        },
+         urlPeriod: 'Этот адрес действителен в течение 10 минут',
+         login: 'Войти',
+         loginSuccess: 'Вход выполнен',
+diff --git a/web/src/pages/desktop/menu/settings/tailscale/device.tsx b/web/src/pages/desktop/menu/settings/tailscale/device.tsx
+index ee94ad3..d34f2ca 100644
+--- a/web/src/pages/desktop/menu/settings/tailscale/device.tsx
++++ b/web/src/pages/desktop/menu/settings/tailscale/device.tsx
+@@ -84,6 +84,13 @@ export const Device = ({ status, onLogout }: DeviceProps) => {
+         <span>{t('settings.tailscale.account')}</span>
+         <span>{status.account}</span>
+       </div>
++
++      <div className="flex justify-between">
++        <span>{t('settings.tailscale.loginServer.title')}</span>
++        <span className="break-all">
++          {status.loginServer || t('settings.tailscale.loginServer.default')}
++        </span>
++      </div>
+       <Divider />
+ 
+       <div className="flex justify-center pt-3">
+diff --git a/web/src/pages/desktop/menu/settings/tailscale/login.tsx b/web/src/pages/desktop/menu/settings/tailscale/login.tsx
+index 389d974..5a3a131 100644
+--- a/web/src/pages/desktop/menu/settings/tailscale/login.tsx
++++ b/web/src/pages/desktop/menu/settings/tailscale/login.tsx
+@@ -1,6 +1,6 @@
+-import { useState } from 'react';
++import { useEffect, useState } from 'react';
+ import { UserSwitchOutlined } from '@ant-design/icons';
+-import { Button, Card } from 'antd';
++import { Button, Card, Input } from 'antd';
+ import { useTranslation } from 'react-i18next';
+ 
+ import * as api from '@/api/extensions/tailscale.ts';
+@@ -14,36 +14,78 @@ export const Login = ({ onSuccess }: LoginProps) => {
+ 
+   const [isLoading, setIsLoading] = useState(false);
+   const [loginUrl, setLoginUrl] = useState('');
++  const [loginServer, setLoginServer] = useState('');
++  const [serverErr, setServerErr] = useState('');
+   const [errMsg, setErrMsg] = useState('');
+ 
+-  function login() {
+-    if (isLoading) return;
+-    setIsLoading(true);
+-
++  useEffect(() => {
+     api
+-      .login()
++      .getLoginServer()
+       .then((rsp) => {
+-        if (rsp.code !== 0) {
+-          setErrMsg(rsp.msg);
+-          return;
++        if (rsp.code === 0 && rsp.data) {
++          setLoginServer(rsp.data.url || '');
+         }
++      })
++      .catch(() => {});
++  }, []);
+ 
+-        const url = rsp.data.url;
+-        if (!url) {
+-          onSuccess();
+-          return;
+-        }
++  function validateLoginServer(value: string) {
++    const trimmed = value.trim();
++    if (!trimmed) return '';
+ 
+-        setLoginUrl(url);
+-        window.open(url, '_blank');
+-        setTimeout(() => setLoginUrl(''), 10 * 60 * 1000);
+-      })
+-      .catch((err) => {
+-        setErrMsg(err?.message || 'Failed to login');
+-      })
+-      .finally(() => {
+-        setIsLoading(false);
+-      });
++    try {
++      const parsed = new URL(trimmed);
++      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
++        return t('settings.tailscale.loginServer.invalidUrl');
++      }
++      if (parsed.search || parsed.hash || parsed.username || parsed.password) {
++        return t('settings.tailscale.loginServer.invalidUrl');
++      }
++    } catch {
++      return t('settings.tailscale.loginServer.invalidUrl');
++    }
++
++    return '';
++  }
++
++  async function login() {
++    if (isLoading) return;
++
++    const validationErr = validateLoginServer(loginServer);
++    setServerErr(validationErr);
++    if (validationErr) return;
++
++    setIsLoading(true);
++    setErrMsg('');
++
++    try {
++      const saveRsp = await api.setLoginServer(loginServer.trim());
++      if (saveRsp.code !== 0) {
++        setServerErr(saveRsp.msg || t('settings.tailscale.loginServer.saveFailed'));
++        return;
++      }
++      setLoginServer(saveRsp.data?.url || '');
++
++      const rsp = await api.login();
++      if (rsp.code !== 0) {
++        setErrMsg(rsp.msg);
++        return;
++      }
++
++      const url = rsp.data.url;
++      if (!url) {
++        onSuccess();
++        return;
++      }
++
++      setLoginUrl(url);
++      window.open(url, '_blank');
++      setTimeout(() => setLoginUrl(''), 10 * 60 * 1000);
++    } catch (err: any) {
++      setErrMsg(err?.message || 'Failed to login');
++    } finally {
++      setIsLoading(false);
++    }
+   }
+ 
+   return (
+@@ -51,16 +93,37 @@ export const Login = ({ onSuccess }: LoginProps) => {
+       <Card>{t('settings.tailscale.notLogin')}</Card>
+ 
+       {loginUrl === '' ? (
+-        <Button
+-          type="primary"
+-          size="large"
+-          shape="round"
+-          icon={<UserSwitchOutlined />}
+-          loading={isLoading}
+-          onClick={login}
+-        >
+-          {t('settings.tailscale.login')}
+-        </Button>
++        <div className="flex w-full flex-col items-center space-y-6">
++          <div className="flex w-full flex-col space-y-1">
++            <span>{t('settings.tailscale.loginServer.title')}</span>
++            <span className="text-xs text-neutral-500">
++              {t('settings.tailscale.loginServer.desc')}
++            </span>
++            <Input
++              value={loginServer}
++              status={serverErr ? 'error' : undefined}
++              disabled={isLoading}
++              placeholder="https://controlplane.tailscale.com"
++              onChange={(event) => {
++                setLoginServer(event.target.value);
++                setServerErr('');
++              }}
++              onPressEnter={login}
++            />
++            {serverErr && <span className="text-xs text-red-500">{serverErr}</span>}
++          </div>
++
++          <Button
++            type="primary"
++            size="large"
++            shape="round"
++            icon={<UserSwitchOutlined />}
++            loading={isLoading}
++            onClick={login}
++          >
++            {t('settings.tailscale.login')}
++          </Button>
++        </div>
+       ) : (
+         <div className="flex w-full flex-col items-center justify-center space-y-5">
+           <Button type="link" href={loginUrl} target="_blank">
+diff --git a/web/src/pages/desktop/menu/settings/tailscale/types.ts b/web/src/pages/desktop/menu/settings/tailscale/types.ts
+index 34ceb12..4095000 100644
+--- a/web/src/pages/desktop/menu/settings/tailscale/types.ts
++++ b/web/src/pages/desktop/menu/settings/tailscale/types.ts
+@@ -5,4 +5,5 @@ export type Status = {
+   name: string;
+   ip: string;
+   account: string;
++  loginServer?: string;
+ };
