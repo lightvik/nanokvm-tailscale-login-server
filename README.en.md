@@ -11,7 +11,8 @@ join [Headscale](https://github.com/juanfont/headscale) or any other compatible 
 2. On the NanoKVM as root (SSH or the `>_` web terminal):
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/install.sh | sh
+   R=https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main
+   curl -fsSL $R/install.sh | sh
    ```
 
 3. **Settings → Tailscale**: enter the URL in **Login Server** and press **Login**. Empty field — official Tailscale.
@@ -19,7 +20,8 @@ join [Headscale](https://github.com/juanfont/headscale) or any other compatible 
 Uninstall:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main/uninstall.sh | sh
+R=https://raw.githubusercontent.com/lightvik/nanokvm-tailscale-login-server/main
+curl -fsSL $R/uninstall.sh | sh
 ```
 
 `--purge` also removes the saved URL and backups.
@@ -48,8 +50,10 @@ with the same `curl | sh`.
 ## Offline install
 
 ```sh
-scp nanokvm-tailscale-login-server_2.5.1-1.tar.gz root@<nanokvm>:/tmp/
-ssh root@<nanokvm> 'cd /tmp && gzip -dc nanokvm-tailscale-login-server_2.5.1-1.tar.gz | tar -xf - && ./nanokvm-tailscale-login-server/install.sh'
+F=nanokvm-tailscale-login-server_2.5.1-1.tar.gz
+scp $F root@<nanokvm>:/tmp/
+ssh root@<nanokvm> "cd /tmp && gzip -dc $F | tar -xf - \
+  && ./nanokvm-tailscale-login-server/install.sh"
 ```
 
 ## Building and new versions
