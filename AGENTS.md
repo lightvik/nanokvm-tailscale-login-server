@@ -42,7 +42,7 @@ README.md (ru, default), README.en.md
 - Accepted URLs: `^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$`, trailing `/` stripped.
   The value goes into `sh -c`, so never loosen the charset.
 
-## What the patch changes (reference: patches/2.5.1)
+## What the patch changes (reference: the newest patches/<version>)
 
 Backend (`server/`):
 - `service/extensions/tailscale/login_server.go` (new): read/validate/write the config file,
@@ -52,6 +52,9 @@ Backend (`server/`):
   status, `Uninstall` also removes `/usr/bin/tailscale.real`.
 - `router/extensions.go`: `GET/POST /api/extensions/tailscale/login-server` (inside the admin-only group).
 - `proto/tailscale.go`: request/response types, `LoginServer` in `GetTailscaleStatusRsp`.
+- `router/router.go` (since 2.5.2-2): `Cache-Control: no-store` for `/` and `*.html`. Web files are copied
+  to `/tmp/server` at boot before NTP sync (mtime ~1970), so without it browsers keep a stale `index.html`
+  and the new UI only appears after a forced reload. `no-cache` is not enough (same 1970 mtime → 304).
 
 Web (`web/src/`):
 - `api/extensions/tailscale.ts`: `getLoginServer`, `setLoginServer`.
