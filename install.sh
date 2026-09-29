@@ -185,7 +185,8 @@ restart_server() {
         return
     fi
     # Detached: when run from the web terminal, the restart kills this shell.
-    log "restarting NanoKVM-Server in 2 seconds (the web UI will reconnect)"
+    log "restarting NanoKVM-Server in 2 seconds"
+    log "then reload the NanoKVM web page (F5) to see the Login Server field"
     setsid sh -c 'sleep 2; /etc/init.d/S95nanokvm restart' >/dev/null 2>&1 < /dev/null &
 }
 

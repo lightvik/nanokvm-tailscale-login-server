@@ -1,4 +1,4 @@
-From 6d86ef279ce56482751982904e053e1f0fd0dbfb Mon Sep 17 00:00:00 2001
+From 7d4132bc5a82a9ea0560c86f38bc7c0ba416abc1 Mon Sep 17 00:00:00 2001
 From: lightvik <lightvik@gmail.com>
 Date: Sun, 27 Sep 2026 19:06:37 +0500
 Subject: [PATCH] tailscale: custom login server (Headscale) support
@@ -11,9 +11,13 @@ control server instead of controlplane.tailscale.com.
 - GET/POST /api/extensions/tailscale/login-server
 - status response includes loginServer
 - uninstall also removes /usr/bin/tailscale.real (wrapper setup)
+- index.html is served with Cache-Control: no-store, so browsers pick up
+  a new web UI without a forced reload (web files get a ~1970 mtime when
+  copied to /tmp/server before NTP sync)
 ---
  server/proto/tailscale.go                     |  10 ++
  server/router/extensions.go                   |   3 +
+ server/router/router.go                       |  10 ++
  server/service/extensions/tailscale/cli.go    |   4 +-
  .../extensions/tailscale/login_server.go      |  81 +++++++++++
  .../extensions/tailscale/login_server_test.go |  38 +++++
@@ -24,7 +28,7 @@ control server instead of controlplane.tailscale.com.
  .../menu/settings/tailscale/device.tsx        |   7 +
  .../desktop/menu/settings/tailscale/login.tsx | 133 +++++++++++++-----
  .../desktop/menu/settings/tailscale/types.ts  |   1 +
- 12 files changed, 305 insertions(+), 37 deletions(-)
+ 13 files changed, 315 insertions(+), 37 deletions(-)
  create mode 100644 server/service/extensions/tailscale/login_server.go
  create mode 100644 server/service/extensions/tailscale/login_server_test.go
 
@@ -63,6 +67,34 @@ index c38eeb4..780459f 100644
 +	api.GET("/tailscale/login-server", ts.GetLoginServer)  // get custom control server
 +	api.POST("/tailscale/login-server", ts.SetLoginServer) // set custom control server
  }
+diff --git a/server/router/router.go b/server/router/router.go
+index e2fbea0..5458068 100644
+--- a/server/router/router.go
++++ b/server/router/router.go
+@@ -4,6 +4,7 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"strings"
+ 
+ 	"NanoKVM-Server/service/controlmode"
+ 	"NanoKVM-Server/service/picoclaw"
+@@ -28,6 +29,15 @@ func web(r *gin.Engine) {
+ 	execDir := filepath.Dir(execPath)
+ 	webPath := fmt.Sprintf("%s/web", execDir)
+ 
++	// index.html must never be cached: web files are copied to /tmp/server at
++	// boot, often before NTP sync, so Last-Modified is ~1970 and browsers would
++	// cache the page (and its references to old asset bundles) for years.
++	r.Use(func(c *gin.Context) {
++		if path := c.Request.URL.Path; path == "/" || strings.HasSuffix(path, ".html") {
++			c.Header("Cache-Control", "no-store")
++		}
++		c.Next()
++	})
+ 	r.Use(static.Serve("/", static.LocalFile(webPath, true)))
+ }
+ 
 diff --git a/server/service/extensions/tailscale/cli.go b/server/service/extensions/tailscale/cli.go
 index 300c2b1..476bdfe 100644
 --- a/server/service/extensions/tailscale/cli.go
