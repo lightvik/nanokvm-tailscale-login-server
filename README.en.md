@@ -38,6 +38,7 @@ Each release targets one NanoKVM version, tagged `<NanoKVM version>-<revision>`.
 
 | NanoKVM | Release |
 |---|---|
+| 2.5.2 | `2.5.2-1` |
 | 2.5.1 | `2.5.1-1` |
 
 ## How it works
@@ -55,17 +56,17 @@ with the same `curl | sh`.
 ## Offline install
 
 ```sh
-scp nanokvm-tailscale-login-server_2.5.1-1.tar.gz root@<nanokvm>:/tmp/
+scp nanokvm-tailscale-login-server_2.5.2-1.tar.gz root@<nanokvm>:/tmp/
 ssh root@<nanokvm>
 cd /tmp
-gzip -dc nanokvm-tailscale-login-server_2.5.1-1.tar.gz | tar -xf -
+gzip -dc nanokvm-tailscale-login-server_2.5.2-1.tar.gz | tar -xf -
 ./nanokvm-tailscale-login-server/install.sh
 ```
 
 ## Building and new versions
 
 ```sh
-./scripts/build.sh 2.5.1-1   # Docker + Node.js 22+, output in dist/
+./scripts/build.sh 2.5.2-1   # Docker + Node.js 22+, output in dist/
 ```
 
 New NanoKVM version: port the patch to `patches/<version>/`, check the build, push tag `<version>-1` — GitHub
