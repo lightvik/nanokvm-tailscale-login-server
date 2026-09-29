@@ -17,7 +17,7 @@ patches/<nanokvm-version>/*.patch   git format-patch against sipeed/NanoKVM tag 
 files/tailscale-wrapper.sh          /usr/bin/tailscale wrapper (fallback after NanoKVM OTA)
 install.sh / uninstall.sh           run ON the device (BusyBox ash, POSIX sh only)
 scripts/build.sh <tag>              builds dist/nanokvm-tailscale-login-server_<tag>.tar.gz
-.github/workflows/build.yml         shellcheck + build every patches/* dir (artifact only)
+.github/workflows/build.yml         shellcheck + build changed patches/* dirs, else latest (artifact only)
 .github/workflows/release.yml       on tag push: build + publish GitHub release
 README.md (ru, default), README.en.md
 ```

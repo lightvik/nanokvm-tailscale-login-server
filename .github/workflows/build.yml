@@ -1,6 +1,8 @@
 name: Build
 
-# Checks that every patches/<version>/ still applies and builds.
+# Builds only the NanoKVM versions being worked on: those whose patches/<version>/
+# changed in this push/PR; if none changed (shared files only) - the latest version.
+# Already released versions are not rebuilt.
 
 on:
   pull_request:
@@ -26,14 +28,30 @@ jobs:
       - run: shellcheck scripts/build.sh
 
   versions:
-    name: List NanoKVM versions
+    name: Select NanoKVM versions
     runs-on: ubuntu-latest
     outputs:
       versions: ${{ steps.list.outputs.versions }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - id: list
-        run: echo "versions=$(find patches -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          latest=$(find patches -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)
+          changed=""
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BASE" HEAD -- patches | cut -d/ -f2 | sort -u)
+          fi
+          versions=""
+          for v in $changed; do
+            [ -d "patches/$v" ] && versions="$versions $v"
+          done
+          [ -n "$versions" ] || versions=$latest
+          echo "building:$versions"
+          echo "versions=$(echo "$versions" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build NanoKVM ${{ matrix.version }}
