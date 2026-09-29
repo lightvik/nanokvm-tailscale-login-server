@@ -38,7 +38,7 @@ curl -fsSL \
 
 | NanoKVM | Релиз |
 |---|---|
-| 2.5.2 | `2.5.2-1` |
+| 2.5.2 | `2.5.2-2` |
 | 2.5.1 | `2.5.1-1` |
 
 ## Как это работает
@@ -55,17 +55,17 @@ curl -fsSL \
 ## Офлайн-установка
 
 ```sh
-scp nanokvm-tailscale-login-server_2.5.2-1.tar.gz root@<nanokvm>:/tmp/
+scp nanokvm-tailscale-login-server_2.5.2-2.tar.gz root@<nanokvm>:/tmp/
 ssh root@<nanokvm>
 cd /tmp
-gzip -dc nanokvm-tailscale-login-server_2.5.2-1.tar.gz | tar -xf -
+gzip -dc nanokvm-tailscale-login-server_2.5.2-2.tar.gz | tar -xf -
 ./nanokvm-tailscale-login-server/install.sh
 ```
 
 ## Сборка и новые версии
 
 ```sh
-./scripts/build.sh 2.5.2-1   # Docker + Node.js 22+, результат в dist/
+./scripts/build.sh 2.5.2-2   # Docker + Node.js 22+, результат в dist/
 ```
 
 Новая версия NanoKVM: перенести патч в `patches/<версия>/`, проверить сборку, запушить тег `<версия>-1` — релиз
